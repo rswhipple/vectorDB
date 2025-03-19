@@ -1,0 +1,76 @@
+import os
+import sys
+import warnings
+
+warnings.filterwarnings("ignore")
+
+import ollama
+import numpy as np
+from sentence_transformers import SentenceTransformer
+
+from pixie import Pixie
+
+# creating an instance of a pre-trained embeddr model
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+pixie = Pixie(embedder)
+
+# generate an answer using llama3 and context docs
+def generate_answer(prompt):
+    response = ollama.chat(
+        model="llama3",
+        options={"temperature": 0.7},
+        messages=[
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+    )
+    return response["message"]["content"]
+
+
+with open("pixie/example/spacebattle.txt") as f:
+    content = f.read()
+    # ingesting the data into vector store
+    ingested = pixie.from_docs(docs=content.split("\n\n"))
+    print(f"Ingested {len(ingested)} documents")
+
+# system prompt
+PROMPT = """
+    User has asked you following question and you need to answer it based on the below provided context. 
+If you don't find any answer in the given context then just say 'I don't have answer for that'. 
+In the final answer, do not add "according to the context or as per the context". 
+You can be creative while using the context to generate the final answer. DO NOT just share the context as it is.
+
+    CONTEXT: {0}
+    QUESTION: {1}
+
+    ANSWER HERE:
+"""
+
+print("\nVector Database Demo")
+print("Type '/bye' to exit")
+
+while True:
+    query = input("\nAsk anything: ")
+    if len(query) == 0:
+        print("Ask a question to continue...")
+        continue
+
+    if query == "/bye":
+        print("Goodbye!")
+        break
+
+    # search similar matches for query in the embedding store
+    similarities = pixie.similarity_search(query, top_k=5)
+    print(f"Query: {query}, top {len(similarities)} matched results:\n")
+
+    print("-" * 5, "Matched Documents Start", "-" * 5)
+    for match in similarities:
+        print(f"{match}\n")
+    print("-" * 5, "Matched Documents End", "-" * 5)
+
+    context = "\n".join(similarities)
+    answer = generate_answer(prompt=PROMPT.format(context, query))
+    print("\n\nQuestion: {0}\nAnswer: {1}".format(query, answer))
